@@ -9,3 +9,4 @@ datasets/
 *.mp4
 *.pth
 *.pt
+checkpoints/
