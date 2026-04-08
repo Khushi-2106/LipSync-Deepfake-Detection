@@ -4,9 +4,7 @@ __pycache__
 __pycache__/
 venv/
 checkpoints/
-data/
-datasets/
 *.mp4
 *.pth
 *.pt
-checkpoints/
+
