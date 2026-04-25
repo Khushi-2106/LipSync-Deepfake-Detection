@@ -8,3 +8,9 @@ checkpoints/
 *.pth
 *.pt
 
+checkpoints/
+datasets/
+*.mp4
+__pycache__/
+*.pt
+*.pth

@@ -177,10 +177,12 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.get_weight = nn.Sequential(
-            nn.Linear(512 * block.expansion + 800, 1),  # TODO: 768 is the length of global feature
+            # nn.Linear(512 * block.expansion + 800, 1),  # TODO: 768 is the length of global feature
+            nn.Linear(512 * block.expansion + 1024, 1),
             nn.Sigmoid()
         )
-        self.fc = nn.Linear(512 * block.expansion + 800, 1)
+        #self.fc = nn.Linear(512 * block.expansion + 800, 1)
+        self.fc = nn.Linear(512 * block.expansion + 1024, 1)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):

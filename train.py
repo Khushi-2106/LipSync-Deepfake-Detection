@@ -17,6 +17,8 @@ if __name__ == "__main__":
     opt = TrainOptions().parse()
     val_opt = get_val_opt()
     model = Trainer(opt)
+    opt.fine_tune = True
+    opt.pretrained_model = "checkpoints/ckpt.pth"
 
     data_loader = create_dataloader(opt)
     val_loader = create_dataloader(val_opt)
@@ -24,11 +26,14 @@ if __name__ == "__main__":
     print("Length of data loader: %d" % (len(data_loader)))
     print("Length of val  loader: %d" % (len(val_loader)))
 
+    patience = 5
+    counter = 0
+
     best_acc = 0
     for epoch in range(opt.epoch):
         model.train()
         print("epoch: ", epoch + model.step_bias)
-        for i, (img, crops, motion_maps, label) in enumerate(data_loader):
+        for i, (img, crops, motion_maps, label, _) in enumerate(data_loader):
             model.total_steps += 1
 
             model.set_input((img, crops, motion_maps, label))
@@ -54,5 +59,15 @@ if __name__ == "__main__":
         )
         if acc > best_acc:
            best_acc = acc
+           counter = 0
            print(f"Saving best model at epoch {epoch}, acc={acc}")
            model.save_networks("best_model.pth")
+        else:
+            counter += 1
+            if counter >= patience:
+                print("Early stopping triggered")
+                break
+
+        print("Batch labels:", label)
+        print("Num real:", (label == 0).sum().item(),
+            "Num fake:", (label == 1).sum().item())

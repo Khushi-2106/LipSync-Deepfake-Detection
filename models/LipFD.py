@@ -8,31 +8,62 @@ class MotionEncoder(nn.Module):
     def __init__(self):
         super(MotionEncoder, self).__init__()
 
-        self.conv = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=3, padding=1),
+        def make_branch():
+            return nn.Sequential(
+            nn.Conv2d(1, 16, 3, padding=1),
+            nn.BatchNorm2d(16),
             nn.ReLU(),
+
+            nn.Conv2d(16, 32, 3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+
             nn.MaxPool2d(2),
 
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.Conv2d(32, 64, 3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),
 
             nn.AdaptiveAvgPool2d((1, 1))
         )
+        self.head_branch = make_branch()
+        self.face_branch = make_branch()
+        self.lip_branch  = make_branch()
 
-    def forward(self, x):
-        # x shape: [B, 4, 1, 224, 224]
-        B, T, C, H, W = x.shape
+        self.attn_fc = nn.Sequential(
+            nn.Linear(64 * 3, 64),
+            nn.ReLU(),
+            nn.Linear(64, 3),  # 3 weights: head, face, lip
+            nn.Softmax(dim=1)
+        )
 
-        x = x.view(B*T, C, H, W)
+    def forward(self, motion_maps):
 
-        x = self.conv(x)
+        def process(flow, branch):
+            B, T, C, H, W = flow.shape
+            flow = flow.view(B*T, C, H, W)
+            feat = branch(flow)
+            feat = feat.view(B, T, -1)
+            return feat.mean(dim=1)  # [B, 64]
 
-        x = x.view(B, T, -1)
+        head_feat = process(motion_maps["head"], self.head_branch)
+        face_feat = process(motion_maps["face"], self.face_branch)
+        lip_feat  = process(motion_maps["lip"],  self.lip_branch)
 
-        x = x.mean(dim=1)
+        # Stack features
+        feats = torch.stack([head_feat, face_feat, lip_feat], dim=1)  # [B, 3, 64]
 
-        return x
+        # Compute attention weights
+        attn_input = torch.cat([head_feat, face_feat, lip_feat], dim=1)  # [B, 192]
+        weights = self.attn_fc(attn_input)  # [B, 3]
+
+        # Apply attention
+        weights = weights.unsqueeze(-1)  # [B, 3, 1]
+        weighted_feats = feats * weights
+
+        # Final motion feature
+        motion_feature = weighted_feats.sum(dim=1)  # [B, 64]
+
+        return motion_feature
 
 class LipFD(nn.Module):
     def __init__(self, name, num_classes=1):
@@ -43,14 +74,26 @@ class LipFD(nn.Module):
         )  # (1120, 1120) -> (224, 224)
         self.encoder, self.preprocess = clip.load(name, device="cpu")
         self.backbone = get_backbone()
+        self.dropout = nn.Dropout(p=0.5)
         self.motion_encoder = MotionEncoder()
+        self.motion_proj = nn.Linear(64, 256)
 
-    def forward(self, x, feature, motion_maps):
+    def forward(self, crops, feature, motion_maps):
+
+        # motion feature
         motion_feature = self.motion_encoder(motion_maps)
+        motion_feature = self.motion_proj(motion_feature)
 
+        # combine
         feature = torch.cat([feature, motion_feature], dim=1)
+        feature = self.dropout(feature)
+        
+        print("CROPS LENGTH:", len(crops))
+        print("FRAMES PER REGION:", len(crops[0]))
+        print("ONE FRAME SHAPE:", crops[0][0].shape)
 
-        return self.backbone(x, feature)
+        return self.backbone(crops, feature)
+
 
     def get_features(self, x):
         x = self.conv1(x)
